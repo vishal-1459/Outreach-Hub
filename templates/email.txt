@@ -1,0 +1,13 @@
+Hi {{Name}},
+
+I’m Vishal Yadav, an aspiring Full Stack Developer currently pursuing a Bachelor of Technology in Information Technology at Jaipur Engineering College and Research Center Foundation. I have hands-on experience building web applications using React.js, Node.js, Express.js, Python, FastAPI, RESTful APIs, and databases such as MongoDB and MySQL. I also completed a Full Stack Developer internship at Neuro-Sharp Software Pvt. Ltd., where I worked on responsive web interfaces and reusable React.js components.
+
+I’m reaching out to explore Software Developer or Full Stack Developer opportunities at {{Company}}. I’ve attached my resume for your consideration, and I’d be grateful for the opportunity to connect if there is a relevant opening that matches my profile.
+
+Best regards,
+Vishal Yadav
+Full Stack Developer
+Jaipur, Rajasthan
+Email: vishalyadav.it26@gmail.com
+LinkedIn: linkedin.com/in/vishal-yadav21
+GitHub: github.com/vishal-1459
