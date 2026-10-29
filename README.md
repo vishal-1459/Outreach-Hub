@@ -1,290 +1,272 @@
-# Local Job Outreach Email Automation Backend
+# ⚡ Outreach-Hub
 
-A 100% local, privacy-first, deterministic job outreach email automation backend built with **Python 3.14+**, **FastAPI**, **SQLite / SQLAlchemy**, and a robust **CLI**.
+> **Local Personal Job Outreach Email Automation Full-Stack Platform**  
+> Powered by **FastAPI**, **SQLite / SQLAlchemy**, **React.js 18**, **Vite**, and **Tailwind CSS**.
 
-This application runs entirely on your local machine. It does **NOT** upload contact data, resume files, or outreach history to any external AI service, third-party email generator, or cloud database. The only external network interaction is the direct TLS connection to **Gmail SMTP** when sending outgoing emails.
+Outreach-Hub is a 100% local, privacy-first full-stack application designed to parse recruiter and HR directories from PDF documents, generate personalized outreach emails, enforce strict duplicate-prevention safeguards via SQLite, and dispatch cold emails with your attached resume via Gmail SMTP.
 
 ---
 
-## 📁 Project Architecture
+## 🌟 Key Highlights & Features
+
+- **🔒 100% Privacy-Preserved & Local**: Runs entirely on your local machine. No candidate records, contact databases, or resume files are transmitted to external AI cloud services or third-party databases. The only outbound connection is direct STARTTLS to Gmail SMTP during confirmed sending.
+- **📄 Automated PDF Contact Parsing**: Extracts 1,842 verified HR and recruiter contacts across 21 pages (`contactInfo.pdf`) using `pdfplumber` with fallback text anchoring. Automatically reconstructs multi-line emails, strips unwanted whitespace, and normalizes contact records.
+- **🎯 Deterministic Personalization Engine**: Smart first-name extractor strips honorifics (`Mr.`, `Ms.`, `Mrs.`, `Dr.`), handles single and multi-word names, and injects personalized placeholders (`{{Name}}`, `{{Company}}`, `{{Title}}`, `{{SenderName}}`, `{{SenderLinkedIn}}`, etc.).
+- **🛡️ SQLite Duplicate Guard**: Prevents re-contacting recipients who have already received an email (`status = 'SENT'`) unless `--force` or `force: true` is explicitly provided.
+- **🧪 Safe Dry Run Simulation Mode**: Simulates the full outreach workflow end-to-end, validates template rendering, logs outcomes to SQLite, and guarantees zero SMTP side-effects.
+- **🚨 Double-Confirmation Safety Guards**: The backend rejects any real email dispatch without an explicit `"confirm": true` flag (`400 Bad Request` safety violation).
+- **⏱️ Configurable Rate Limiting**: Enforces customizable per-email dispatch delays (default: 5.0 seconds) to prevent Gmail SMTP rate limit tripping and spam scoring.
+- **💻 Full CLI & Modern React Frontend**: Operate via a comprehensive terminal CLI (`cli.py`) or through a high-performance web dashboard with live analytics, table search, batch email previewing, log auditing, and system diagnostics.
+
+---
+
+## 🏗️ Repository Architecture
 
 ```
-Placemnt/
-├── app/
-│   ├── __init__.py
-│   ├── main.py                  # FastAPI application entrypoint & lifespan
-│   ├── config.py                # Environment configuration (Pydantic settings)
-│   ├── api/
+Outreach-Hub/
+├── backend/                                # FastAPI Backend Application
+│   ├── app/
 │   │   ├── __init__.py
-│   │   └── routes.py            # API routes: /, /health, /contacts, /preview, /send, /logs
-│   ├── pdf/
+│   │   ├── main.py                         # FastAPI app entrypoint, CORS & lifespan management
+│   │   ├── config.py                       # Pydantic BaseSettings & centralized environment configuration
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   └── routes.py                   # REST endpoints: /, /health, /contacts, /preview, /send, /logs
+│   │   ├── database/
+│   │   │   ├── __init__.py
+│   │   │   ├── database.py                 # SQLite engine & session management
+│   │   │   └── models.py                   # EmailLog SQLAlchemy model & duplicate query helpers
+│   │   ├── email/
+│   │   │   ├── __init__.py
+│   │   │   ├── sender.py                   # SMTP dispatch, STARTTLS, MIME multipart, PDF attachments
+│   │   │   └── template.py                 # Jinja-style template rendering & honorific name logic
+│   │   ├── pdf/
+│   │   │   ├── __init__.py
+│   │   │   └── parser.py                   # 21-page PDF contact extractor & email cleaner
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   └── outreach.py                 # Core orchestration service for API and CLI
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       ├── logger.py                   # Rotating console & file logger (logs/outreach.log)
+│   │       └── validation.py               # Email, range, file existence, and SMTP validators
+│   ├── data/
+│   │   └── email_sender.db                 # SQLite persistent audit database
+│   ├── logs/
+│   │   └── outreach.log                    # Timestamped execution log file
+│   ├── templates/
+│   │   ├── email.txt                       # Customizable email body template
+│   │   └── subject.txt                     # Customizable email subject template
+│   ├── tests/
 │   │   ├── __init__.py
-│   │   └── parser.py            # PDF parser: table extraction + email anchor fallback
-│   ├── email/
-│   │   ├── __init__.py
-│   │   ├── sender.py            # SMTP dispatch, STARTTLS, MIME, PDF attachment
-│   │   └── template.py          # Personalized first-name logic & template rendering
-│   ├── database/
-│   │   ├── __init__.py
-│   │   ├── database.py          # SQLite engine & session management
-│   │   └── models.py            # EmailLog model & duplicate prevention queries
-│   ├── services/
-│   │   ├── __init__.py
-│   │   └── outreach.py          # Orchestration service shared by CLI and API
-│   └── utils/
-│       ├── __init__.py
-│       ├── logger.py            # Standard Python logger (console + logs/outreach.log)
-│       └── validation.py        # Email, range, file existence, and SMTP validators
-├── data/
-│   └── email_sender.db          # SQLite database (auto-created on startup)
-├── templates/
-│   ├── email.txt                # Configurable email body template
-│   └── subject.txt              # Configurable email subject template
-├── logs/
-│   └── outreach.log             # Timestamped application logs
-├── tests/
-│   ├── __init__.py
-│   ├── test_api.py              # FastAPI endpoint tests & safety checks
-│   ├── test_database.py         # Duplicate prevention & DB model tests
-│   ├── test_parser.py           # 1842-contact PDF parser & email cleaner tests
-│   └── test_template.py         # Name personalization & template renderer tests
-├── contactInfo.pdf              # HR contacts PDF (1,842 contacts, 21 pages)
-├── Resume.pdf                   # Vishal Yadav's resume attachment
-├── cli.py                       # Command-line interface
-├── requirements.txt             # Python dependencies
-├── .env.example                 # Example environment configuration
-├── .env                         # Local environment configuration (do NOT commit)
-├── .gitignore                   # Git ignore for credentials, db, cache, logs
-└── README.md                    # Project documentation
+│   │   ├── test_api.py                     # FastAPI endpoint tests & safety checks
+│   │   ├── test_database.py                # Duplicate prevention & DB model tests
+│   │   ├── test_parser.py                  # PDF parser & email cleaner tests
+│   │   └── test_template.py                # Name personalization & template renderer tests
+│   ├── contactInfo.pdf                     # Source HR directory (1,842 contacts)
+│   ├── Resume.pdf                          # Resume attachment file
+│   ├── cli.py                              # Command-line interface
+│   ├── requirements.txt                    # Python dependencies
+│   ├── .env.example                        # Backend environment template
+│   └── .env                                # Local backend configuration (ignored by git)
+│
+├── frontend/                               # React + Vite Frontend Application
+│   ├── public/
+│   │   └── vite.svg                        # Platform icon
+│   ├── src/
+│   │   ├── assets/
+│   │   ├── components/
+│   │   │   ├── AlertBanner.jsx             # Notification & warning alert cards
+│   │   │   ├── Badge.jsx                   # Color-coded status badge indicators
+│   │   │   ├── EmptyState.jsx              # Reusable empty states with actions
+│   │   │   ├── LoadingSkeleton.jsx         # Card & table loading skeleton placeholders
+│   │   │   ├── Modal.jsx                   # Accessible modal dialog with backdrop
+│   │   │   └── StatCard.jsx                # Metric stat card with icons & trends
+│   │   ├── layouts/
+│   │   │   ├── AppLayout.jsx               # Main application shell with heartbeat ping
+│   │   │   ├── Navbar.jsx                  # Top navigation with live status badges
+│   │   │   └── Sidebar.jsx                 # Dark-navy sidebar navigation
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx               # Analytics KPIs, Recharts graphs, quick launch
+│   │   │   ├── ContactsPage.jsx            # 1,842 contacts table, search, modal inspector
+│   │   │   ├── CampaignPage.jsx            # Outreach dispatcher, dry-run toggle, safety guards
+│   │   │   ├── PreviewPage.jsx             # Full email drafts & duplicate checks
+│   │   │   ├── LogsPage.jsx                # SQLite audit history, search, CSV export
+│   │   │   └── DiagnosticsPage.jsx         # Live system diagnostic & variable reference
+│   │   ├── services/
+│   │   │   └── api.js                      # Centralized Axios client & API endpoints
+│   │   ├── utils/
+│   │   │   └── formatters.js               # Date, relative time, and badge formatters
+│   │   ├── App.jsx                         # React Router routes
+│   │   ├── main.jsx                        # React root mount
+│   │   └── index.css                       # Tailwind CSS directives & custom styling
+│   ├── index.html                          # HTML shell
+│   ├── package.json                        # Frontend dependencies & scripts
+│   ├── vite.config.js                      # Vite build & proxy configuration
+│   ├── tailwind.config.js                  # Tailwind configuration
+│   ├── postcss.config.js                   # PostCSS configuration
+│   ├── .env.example                        # Frontend environment template
+│   └── .env                                # Local frontend configuration
+│
+├── .gitignore                              # Root gitignore for backend & frontend
+└── README.md                               # Project documentation
 ```
+
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technologies |
+|---|---|
+| **Backend Framework** | FastAPI (Python 3.11+) |
+| **Server Engine** | Uvicorn ASGI Server |
+| **Database & ORM** | SQLite & SQLAlchemy |
+| **PDF Extraction** | pdfplumber, pypdf |
+| **Validation** | Pydantic v2 & Pydantic-Settings |
+| **Backend Testing** | Pytest, HTTPX TestClient (15/15 tests passing) |
+| **Frontend Framework** | React.js 18 & Vite |
+| **UI & Styling** | Tailwind CSS (Slate / Dark-Navy SaaS aesthetic) |
+| **Routing** | React Router DOM v6 |
+| **Icons & Charts** | Lucide React, Recharts |
+| **HTTP Client** | Axios with centralized error unwrapping |
 
 ---
 
 ## ⚙️ Installation & Setup
 
-### 1. Prerequisites
-- **Python 3.11+** (Tested on Python 3.14)
-- PowerShell or Terminal
+### Prerequisites
 
-### 2. Create and Activate Virtual Environment
+- **Python 3.11+** installed (tested on Python 3.14)
+- **Node.js 18+** & **npm** installed (tested on Node v24)
+- A Gmail account with an **App Password** (required only for live email dispatch)
 
-```powershell
-# In project root:
+---
+
+### Step 1: Backend Setup
+
+Open a terminal in the `backend/` directory:
+
+```bash
+cd backend
+
+# 1. Create a virtual environment (optional but recommended)
 python -m venv .venv
 
-# Windows PowerShell:
+# On Windows PowerShell:
 .venv\Scripts\Activate.ps1
-
-# Linux / macOS:
+# On Linux/macOS:
 source .venv/bin/activate
-```
 
-### 3. Install Dependencies
-
-```bash
+# 2. Install dependencies
 pip install -r requirements.txt
+
+# 3. Configure environment variables
+# Copy .env.example to .env and configure your SMTP credentials
+cp .env.example .env
 ```
 
-### 4. Configure Environment Variables
+#### Backend Environment Variables (`backend/.env`):
 
-Copy the sample `.env.example` file:
-```powershell
-copy .env.example .env
-```
-
-Open `.env` and fill in your details:
-```env
-# SMTP Configuration
+```ini
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=vishalyadav.it26@gmail.com
-SMTP_PASSWORD=YOUR_GMAIL_APP_PASSWORD
-FROM_EMAIL=vishalyadav.it26@gmail.com
+SMTP_USER=your_email@gmail.com
+SMTP_PASSWORD=your_16_digit_app_password
+FROM_EMAIL=your_email@gmail.com
 
-# Database & File Paths
-DATABASE_URL=sqlite:///./data/email_sender.db
-CONTACT_PDF=./contactInfo.pdf
-RESUME_PDF=./Resume.pdf
+RATE_LIMIT_SECONDS=5.0
 
-# Automation Settings
-RATE_LIMIT_SECONDS=5
+# Sender Metadata
+SENDER_NAME="Vishal Yadav"
+SENDER_TITLE="Full Stack Developer"
+SENDER_PHONE="+91-7838726190"
+SENDER_LOCATION="Jaipur, Rajasthan"
+SENDER_LINKEDIN="linkedin.com/in/vishal-yadav21"
+SENDER_GITHUB="github.com/vishal-1459"
+```
 
-# Sender Profile
-SENDER_NAME=Vishal Yadav
-SENDER_TITLE=Full Stack Developer
-SENDER_PHONE=+91-7838726190
-SENDER_LOCATION=Jaipur, Rajasthan
-SENDER_LINKEDIN=linkedin.com/in/vishal-yadav21
-SENDER_GITHUB=github.com/vishal-1459
+> [!TIP]
+> **How to generate a Gmail App Password:**
+> 1. Go to your [Google Account Security Settings](https://myaccount.google.com/security).
+> 2. Ensure **2-Step Verification** is turned ON.
+> 3. Search for **App passwords** (or navigate to Security → 2-Step Verification → App passwords).
+> 4. Create a new App Password named `Outreach-Hub` and paste the 16-character code into `SMTP_PASSWORD` (without spaces).
+
+#### Start the FastAPI Server:
+
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+The backend will start at:
+- **API Base URL**: `http://127.0.0.1:8000`
+- **Interactive Swagger Docs**: `http://127.0.0.1:8000/docs`
+- **ReDoc Documentation**: `http://127.0.0.1:8000/redoc`
+
+---
+
+### Step 2: Frontend Setup
+
+Open a second terminal in the `frontend/` directory:
+
+```bash
+cd frontend
+
+# 1. Install frontend dependencies
+npm install
+
+# 2. Configure environment variable (points to FastAPI backend)
+cp .env.example .env
+
+# 3. Start the Vite development server
+npm run dev
+```
+
+The React frontend will be accessible at:
+- **Web UI**: `http://localhost:5173`
+
+To build the frontend for production:
+```bash
+cd frontend
+npm run build
 ```
 
 ---
 
-## 🔑 How to Generate a Gmail App Password
+## 📝 Email Templates & Personalization
 
-Google does **NOT** allow sending emails via standard account passwords when 2-Step Verification is enabled. You must generate a dedicated **16-character Google App Password**:
+Outreach-Hub uses Jinja-style variable substitution for dynamically rendering subjects and bodies:
 
-1. Go to your **Google Account**: [https://myaccount.google.com/](https://myaccount.google.com/)
-2. Navigate to **Security** (on the left menu).
-3. Under **"How you sign in to Google"**, ensure **2-Step Verification** is turned **ON**.
-4. In the search bar at the top of Google Account, search for **"App passwords"** (or go directly to [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
-5. Under **"App name"**, enter: `EmailSender Backend` or `Placemnt`.
-6. Click **Create**.
-7. Google will display a 16-letter passcode (e.g. `abcd efgh ijkl mnop`).
-8. Copy this passcode and paste it into `.env` as `SMTP_PASSWORD`:
-   ```env
-   SMTP_PASSWORD=abcdefghijklmnop
-   ```
-   *(You can omit spaces or include them; standard practice is without spaces).*
+- **Subject Template**: Located at `backend/templates/subject.txt`
+- **Body Template**: Located at `backend/templates/email.txt`
 
-> [!WARNING]
-> **Never commit `.env` or your App Password to Git.** `.env` is listed in `.gitignore`.
+### Supported Placeholders
 
----
-
-## 💻 CLI Commands
-
-### 1. View Contacts
-Parse and display contacts directly from the PDF in a clean tabular format:
-```bash
-# View first 20 contacts
-python cli.py contacts --start 1 --end 20
-
-# View all 1842 contacts
-python cli.py contacts
-```
-
-Output includes:
-```
-=========================================================================================================
-SNo    | Name                     | Email                              | Title                            | Company
----------------------------------------------------------------------------------------------------------
-1      | Akanksha Puri            | akanksha.puri@sourcefuse.com       | Associate Director HR            | SourceFuse Technologies
-2      | Akanksha Sogani          | akanksha.sogani@perennialsys.com   | Head HR                          | Perennial Systems
-3      | Akhil Jogiparthi         | akhil@ibhubs.co                    | Vice President - Talent Accelera | iB Hubs
-...
-=========================================================================================================
-Contacts displayed: 20 (Range: 1 - 20)
-Total contacts: 1842
-Valid contacts: 1842
-Invalid/skipped: 0
-```
-
-### 2. Preview Mode (Zero Risk)
-Preview rendered subject lines and personalized email bodies without sending anything. Does not require an SMTP connection or password.
-```bash
-python cli.py preview --start 1 --end 3
-```
-
-Example Output:
-```
---------------------------------------------------------------------------------
-SNo:       1
-Recipient: Akanksha Puri
-Email:     akanksha.puri@sourcefuse.com
-Company:   SourceFuse Technologies
-Title:     Associate Director HR
-Subject:   Application for Software Developer / Full Stack Developer Opportunity — Vishal Yadav
-Body:
-Hi Akanksha,
-
-I’m Vishal Yadav, an aspiring Full Stack Developer currently pursuing a Bachelor of Technology in Information Technology at Jaipur Engineering College and Research Center Foundation. I have hands-on experience building web applications using React.js, Node.js, Express.js, Python, FastAPI, RESTful APIs, and databases such as MongoDB and MySQL. I also completed a Full Stack Developer internship at Neuro-Sharp Software Pvt. Ltd., where I worked on responsive web interfaces and reusable React.js components.
-
-I’m reaching out to explore Software Developer or Full Stack Developer opportunities at SourceFuse Technologies. I’ve attached my resume for your consideration, and I’d be grateful for the opportunity to connect if there is a relevant opening that matches my profile.
-
-Best regards,
-Vishal Yadav
-Full Stack Developer
-Jaipur, Rajasthan
-Email: vishalyadav.it26@gmail.com
-LinkedIn: linkedin.com/in/vishal-yadav21
-GitHub: github.com/vishal-1459
---------------------------------------------------------------------------------
-```
-
-### 3. Dry Run Simulation
-Tests contact resolution, email validation, duplicate checks, and verifies `Resume.pdf` existence without dispatching any emails:
-```bash
-python cli.py send --start 1 --end 10 --dry-run
-```
-
-Output:
-```
-========================================
-DRY RUN MODE — Processing SNo 1 to 10 (10 contacts)
-Resume attachment verified: Resume.pdf
-========================================
-
-========================================
-DRY RUN SUMMARY
-========================================
-Processed:  10
-Would Send: 10
-Skipped:    0
-Duplicates: 0
-========================================
-
-DRY RUN — No emails were sent.
-```
-
-### 4. Real Send (Interactive Safety Confirmation)
-Initiates real email sending via Gmail SMTP. Prompts for explicit interactive confirmation before any transmission:
-```bash
-python cli.py send --start 1 --end 10
-```
-
-Confirmation Prompt:
-```
-==================================================
-You are about to send 10 emails.
-Sender: vishalyadav.it26@gmail.com
-Range:  1 - 10
-Resume: Resume.pdf
-Emails will be sent using Gmail SMTP.
-==================================================
-Continue? [y/N]:
-```
-Only typing `y` or `yes` will proceed; any other key cancels immediately.
-
-### 5. Duplicate Prevention & `--force`
-If a recipient was already successfully sent an email in any prior run, it is automatically skipped:
-```
-Skipping duplicate: akanksha.puri@sourcefuse.com (Reason: Email already sent previously)
-```
-
-To explicitly override duplicate prevention and resend:
-```bash
-python cli.py send --start 1 --end 10 --force
-```
-
-### 6. Custom Rate Limiting Delay
-To modify the delay between successive email dispatches:
-```bash
-python cli.py send --start 1 --end 10 --delay 10
-```
+| Variable | Description | Example Replacement |
+|---|---|---|
+| `{{Name}}` | Cleaned recipient first name (honorifics stripped) | `Akanksha` (from `Ms. Akanksha Sogani`) |
+| `{{Company}}` | Recipient's target company | `Perennial Systems` |
+| `{{Title}}` | Recipient's job title | `Head HR` |
+| `{{SenderName}}` | Configured sender full name | `Vishal Yadav` |
+| `{{SenderTitle}}` | Configured sender title | `Full Stack Developer` |
+| `{{SenderPhone}}` | Configured sender phone | `+91-7838726190` |
+| `{{SenderLocation}}` | Configured sender location | `Jaipur, Rajasthan` |
+| `{{SenderLinkedIn}}` | Configured LinkedIn handle or URL | `linkedin.com/in/vishal-yadav21` |
+| `{{SenderGitHub}}` | Configured GitHub handle or URL | `github.com/vishal-1459` |
 
 ---
 
-## 🚀 Running FastAPI Server
-
-Start the local server with Uvicorn:
-```bash
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Interactive OpenAPI Documentation (Swagger UI):
-- Open **http://127.0.0.1:8000/docs** in your browser.
-
-### API Endpoints
+## 🔌 API Endpoints Summary
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/` | Service health & available endpoints |
-| `GET` | `/health` | System status, database check, contact & resume presence |
-| `GET` | `/contacts?start=1&end=20` | Structured JSON list of parsed contacts with search |
-| `POST` | `/preview` | Rendered email previews for a range |
-| `POST` | `/send` | Dispatch emails (requires `{"confirm": true}` safety flag) |
-| `GET` | `/logs?limit=50` | Outreach history and status logs from SQLite |
+| `GET` | `/` | Service metadata, status, author, and endpoint index |
+| `GET` | `/health` | Complete system health, database status, PDF & SMTP verification |
+| `GET` | `/contacts?start=1&end=20&search=...` | Paginated and filtered recruiter contacts from PDF |
+| `POST` | `/preview` | Generates personalized email previews without sending |
+| `POST` | `/send` | Executes outreach campaign (requires `confirm: true` or `dry_run: true`) |
+| `GET` | `/logs?limit=50&offset=0` | Retrieves persistent outreach history from SQLite |
 
 #### Example: `POST /send` Payload
 ```json
@@ -294,92 +276,68 @@ Interactive OpenAPI Documentation (Swagger UI):
   "confirm": true,
   "force": false,
   "dry_run": false,
-  "delay_seconds": 5
+  "delay_seconds": 5.0
 }
 ```
 
 > [!IMPORTANT]
-> The `/send` API endpoint rejects any request where `"dry_run": false` and `"confirm": false` with a `400 Bad Request` safety violation.
+> **Safety Guard**: The backend automatically rejects any request where `dry_run: false` and `confirm: false` with a `400 Bad Request` safety violation to prevent unintended dispatches.
 
 ---
 
-## 🔒 Duplicate Prevention & SQLite Database
+## 💻 CLI Usage
 
-The application uses **SQLite** located at `data/email_sender.db`.
+You can operate Outreach-Hub directly from your terminal using the Python CLI:
 
-### Database Schema (`email_logs`)
-- `id`: Integer Primary Key
-- `recipient_email`: String (indexed, normalized to lowercase)
-- `name`: Recipient contact name
-- `company`: Target organization name
-- `title`: HR / Recruiter job title
-- `timestamp`: ISO UTC timestamp
-- `status`: `SENT`, `FAILED`, `SKIPPED`, `DRY_RUN`
-- `error_message`: Error details if failed or skipped
-- `subject`: Rendered email subject line
-
-### Duplicate Logic
-Before each email is sent:
-```sql
-SELECT 1 FROM email_logs WHERE LOWER(recipient_email) = LOWER(:email) AND status = 'SENT';
-```
-If a record exists, sending is aborted with status `SKIPPED` unless `--force` is provided.
-
----
-
-## 📝 Template Personalization
-
-Email templates are located outside the application code:
-- **`templates/email.txt`**: Email body template
-- **`templates/subject.txt`**: Email subject line template
-
-### Available Variables
-- `{{Name}}`: Personalized first name (e.g., "Akanksha Puri" $\rightarrow$ "Akanksha")
-- `{{FullName}}`: Full original name
-- `{{Company}}`: Target company name
-- `{{Title}}`: Recipient title
-- `{{Email}}`: Recipient email address
-- `{{SenderName}}`: Vishal Yadav
-- `{{SenderTitle}}`: Full Stack Developer
-- `{{SenderEmail}}`: vishalyadav.it26@gmail.com
-- `{{SenderPhone}}`: +91-7838726190
-- `{{SenderLocation}}`: Jaipur, Rajasthan
-- `{{SenderLinkedIn}}`: linkedin.com/in/vishal-yadav21
-- `{{SenderGitHub}}`: github.com/vishal-1459
-
-### Name Personalization Rules
-1. Strip leading honorifics (`Mr.`, `Ms.`, `Mrs.`, `Dr.`, `Prof.`).
-2. Single-word names (`"Akriti"`) $\rightarrow$ `"Akriti"`.
-3. Two+ word names (`"Akanksha Puri"`) $\rightarrow$ `"Akanksha"`.
-4. Single-letter initials (`"A. K. Sharma"`) safely fall back to `"A. K. Sharma"` rather than `"A"`.
-5. Empty / missing names fall back to `"Hiring Team"`.
-
----
-
-## 📄 PDF Parser & Layout Handling
-
-1. **Table Extraction**: `pdfplumber.extract_tables()` extracts all 21 pages and 1,842 contacts.
-2. **Wrapped Multi-Line Emails**: The parser strips internal newlines (`\n`) and whitespace from email fields (e.g. SNo 394 `gitanjali.venkatesh@excelenciaconsulting.\ncom`), ensuring 100% valid email addresses.
-3. **Fallback Anchor**: If table borders are absent on any page, the parser automatically switches to an email-regex anchor fallback parser.
-4. **Resilience**: Malformed rows are logged to `logs/outreach.log` and skipped without crashing the application.
-
----
-
-## 🧪 Running Automated Tests
-
-Run the full pytest suite:
 ```bash
+cd backend
+
+# 1. View system diagnostics and health
+python cli.py health
+
+# 2. View parsed contacts (default first 20)
+python cli.py contacts --start 1 --end 20
+
+# 3. Search contacts by name, company, title, or email
+python cli.py contacts --search "Perennial"
+
+# 4. Preview personalized emails without sending
+python cli.py preview --start 1 --end 5
+
+# 5. Safe simulation (Dry Run — zero SMTP side-effects)
+python cli.py send --start 1 --end 5 --dry-run
+
+# 6. Real email dispatch (prompts with interactive [y/N] confirmation)
+python cli.py send --start 1 --end 5
+
+# 7. Force resending to already contacted recipients
+python cli.py send --start 1 --end 5 --force
+
+# 8. View execution and audit logs from SQLite
+python cli.py logs --limit 25
+```
+
+---
+
+## 🧪 Testing & Verification
+
+Run the automated test suite from the `backend/` directory:
+
+```bash
+cd backend
 python -m pytest tests/ -v
 ```
 
-All 15 unit and integration tests verify:
-- Complete parsing of 1,842 contacts from `contactInfo.pdf`
-- Multi-line email reconstruction
-- Safe first-name extraction & fallback logic
-- Template variable replacement
-- SQLite duplicate prevention & log recording
-- FastAPI endpoints, safety guards, and dry-run execution
+### Test Coverage (15/15 passing):
+1. **API Endpoints**: Root, Health, Contacts pagination/filtering, Preview rendering, Send safety guards, Dry-run execution.
+2. **Database & Safety**: Duplicate prevention logic, transactional logging, state queries.
+3. **PDF Parser**: Multi-line email reconstruction, space stripping, full 1,842 extraction.
+4. **Template & Name Engine**: Honorific stripping (`Mr.`, `Dr.`, `Ms.`), single/multi-word name parsing, variable substitution.
 
+---
 
+## 🛡️ Security & Privacy
 
-// 850 
+- **Zero Cloud AI Leakage**: Recipient details and resume documents remain 100% on your machine.
+- **STARTTLS Encryption**: All outgoing email connections use TLS encryption on port 587.
+- **Git Protection**: `.gitignore` strictly prevents database files (`*.db`), log files (`*.log`), and `.env` credentials from being committed.

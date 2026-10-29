@@ -34,10 +34,29 @@ def cmd_contacts(args):
     total_contacts = len(contacts)
     total_skipped = len(skipped)
 
-    start = args.start or 1
-    end = args.end or (min(start + 19, total_contacts) if args.start else total_contacts)
+    if args.search:
+        s = args.search.lower()
+        contacts = [
+            c for c in contacts
+            if s in (c.get("name") or "").lower()
+            or s in (c.get("company") or "").lower()
+            or s in (c.get("email") or "").lower()
+            or s in (c.get("title") or "").lower()
+        ]
 
-    filtered = [c for c in contacts if start <= c.get("sno", -1) <= end]
+    filtered = contacts
+    if args.start is not None and args.end is not None:
+        filtered = [c for c in filtered if args.start <= c.get("sno", -1) <= args.end]
+    elif args.start is not None:
+        end_val = args.end or min(args.start + 19, total_contacts)
+        filtered = [c for c in filtered if args.start <= c.get("sno", -1) <= end_val]
+    elif args.end is not None:
+        filtered = [c for c in filtered if c.get("sno", -1) <= args.end]
+    elif not args.search:
+        # Default view: first 20
+        filtered = [c for c in filtered if 1 <= c.get("sno", -1) <= 20]
+
+    range_label = f"{args.start or 1} - {args.end or (20 if not args.search else total_contacts)}"
 
     print("\n" + "=" * 105)
     print(f"{'SNo':<6} | {'Name':<24} | {'Email':<34} | {'Title':<32} | {'Company'}")
@@ -52,7 +71,7 @@ def cmd_contacts(args):
         print(f"{sno:<6} | {name:<24} | {email:<34} | {title:<32} | {company}")
 
     print("=" * 105)
-    print(f"\nContacts displayed: {len(filtered)} (Range: {start} - {end})")
+    print(f"\nContacts displayed: {len(filtered)} (Range: {range_label})")
     print(f"Total contacts: {total_contacts}")
     print(f"Valid contacts: {total_contacts}")
     print(f"Invalid/skipped: {total_skipped}")
@@ -62,6 +81,53 @@ def cmd_contacts(args):
         for s in skipped:
             print(s)
 
+    return 0
+
+def cmd_health(args):
+    """View system health, PDF contacts, and SMTP configuration."""
+    contact_exists = Path(settings.CONTACT_PDF).is_file()
+    resume_exists = Path(settings.RESUME_PDF).is_file()
+    total_contacts = 0
+    if contact_exists:
+        try:
+            contacts, _ = parse_contacts_pdf()
+            total_contacts = len(contacts)
+        except Exception:
+            pass
+
+    print("\n" + "=" * 55)
+    print("⚡ Outreach-Hub System Diagnostics & Health")
+    print("=" * 55)
+    print(f"Status:       HEALTHY")
+    print(f"Database:     Connected ({settings.DATABASE_URL.split('///')[-1]})")
+    print(f"Contact PDF:  {'Available' if contact_exists else 'NOT FOUND'} ({total_contacts} contacts loaded)")
+    print(f"Resume PDF:   {'Available' if resume_exists else 'NOT FOUND'} ({Path(settings.RESUME_PDF).name})")
+    print(f"Sender Name:  {settings.SENDER_NAME}")
+    print(f"Sender Email: {settings.FROM_EMAIL}")
+    print(f"SMTP Server:  {settings.SMTP_HOST}:{settings.SMTP_PORT}")
+    print(f"SMTP Auth:    {'Configured' if bool(settings.SMTP_PASSWORD) else 'NOT CONFIGURED (dry-run mode only)'}")
+    print("=" * 55 + "\n")
+    return 0
+
+def cmd_logs(args):
+    """View recent execution and audit logs from SQLite."""
+    from app.database.models import get_all_logs, EmailLog
+    db = SessionLocal()
+    try:
+        logs = get_all_logs(db, limit=args.limit, offset=args.offset)
+        total = db.query(EmailLog).count()
+        print(f"\nDisplaying {len(logs)} of {total} log entries (limit={args.limit}, offset={args.offset}):\n")
+        print("=" * 115)
+        print(f"{'ID':<5} | {'Recipient':<20} | {'Email':<30} | {'Company':<20} | {'Status':<9} | {'Timestamp'}")
+        print("-" * 115)
+        for log in logs:
+            sent_str = log.timestamp.strftime("%Y-%m-%d %H:%M:%S") if log.timestamp else "N/A"
+            status_str = log.status or "UNKNOWN"
+            comp_str = (log.company or "")[:20]
+            print(f"{log.id:<5} | {(log.name or '')[:20]:<20} | {(log.recipient_email or '')[:30]:<30} | {comp_str:<20} | {status_str:<9} | {sent_str}")
+        print("=" * 115 + "\n")
+    finally:
+        db.close()
     return 0
 
 def cmd_preview(args):
@@ -216,8 +282,19 @@ def main():
     p_contacts = subparsers.add_parser("contacts", help="View parsed contacts from PDF")
     p_contacts.add_argument("--start", type=int, default=None, help="Start row (SNo)")
     p_contacts.add_argument("--end", type=int, default=None, help="End row (SNo)")
-    p_contacts.add_argument("--show-skipped", action="store_true", help="Print skipped/malformed lines")
+    p_contacts.add_argument("--search", type=str, default=None, help="Search term in name, company, email, or title")
+    p_contacts.add_argument("--show-skipped", action="store_true", help="Print skipped/malformed records")
     p_contacts.set_defaults(func=cmd_contacts)
+
+    # health subcommand
+    p_health = subparsers.add_parser("health", help="Check system diagnostics and health")
+    p_health.set_defaults(func=cmd_health)
+
+    # logs subcommand
+    p_logs = subparsers.add_parser("logs", help="View email delivery and audit logs from database")
+    p_logs.add_argument("--limit", type=int, default=25, help="Number of records to show (default: 25)")
+    p_logs.add_argument("--offset", type=int, default=0, help="Pagination offset (default: 0)")
+    p_logs.set_defaults(func=cmd_logs)
 
     # preview subcommand
     p_preview = subparsers.add_parser("preview", help="Preview rendered emails without sending")
